@@ -7,5 +7,12 @@ echo "Monitoring: /home/jdneff/gatekeeper/captures"
 echo "Press Ctrl+C to stop"
 echo ""
 
-# Source the Hailo environment and run our service
-source /home/jdneff/Projects/hailo-rpi5-examples/setup_env.sh && python3 main.py
+# Source the Hailo environment
+source /home/jdneff/Projects/hailo-rpi5-examples/setup_env.sh
+
+# Get the python path from the virtual environment
+VENV_PYTHON=$(which python3)
+
+# Run the object detection service with sudo, preserving environment and using venv python
+echo "Starting object detection service with sudo..."
+sudo -E env PATH="$PATH" "$VENV_PYTHON" main.py
