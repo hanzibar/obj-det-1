@@ -144,7 +144,8 @@ def postprocess(
     output_queue: queue.Queue,
     cap: cv2.VideoCapture,
     save_stream_output: bool,
-    utils: ObjectDetectionUtils
+    utils: ObjectDetectionUtils,
+    input_path: str = None
 ) -> None:
     """
     Process and visualize the output results.
@@ -154,10 +155,16 @@ def postprocess(
         camera (bool): Flag indicating if the input is from a camera.
         save_stream_output (bool): Flag indicating if the camera output should be saved.
         utils (ObjectDetectionUtils): Utility class for object detection visualization.
+        input_path (str): Path to input file to determine output directory.
     """
     image_id = 0
     out = None
-    output_path = Path('output')
+    
+    # Determine output path based on input path
+    if input_path and 'test/' in input_path:
+        output_path = Path('test')
+    else:
+        output_path = Path('output')
     if cap is not None:
         # Create a named window
         cv2.namedWindow("Output", cv2.WND_PROP_FULLSCREEN)
@@ -274,7 +281,7 @@ def infer(
     )
     postprocess_thread = threading.Thread(
         target=postprocess,
-        args=(output_queue, cap, save_stream_output, det_utils)
+        args=(output_queue, cap, save_stream_output, det_utils, input)
     )
 
     preprocess_thread.start()
