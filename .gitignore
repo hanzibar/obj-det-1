@@ -1,0 +1,17 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Hailo logs
+hailort.log
+*.log
+
+# Test outputs (keep examples but ignore new test runs)
+# test/test_output*.json
+# test/test_output*.jpg
+# test/test_output*.png
+
+# OS files
+.DS_Store
+Thumbs.db
