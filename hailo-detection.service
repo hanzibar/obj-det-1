@@ -1,0 +1,29 @@
+[Unit]
+Description=Hailo AI Object Detection Service
+Documentation=https://github.com/hanzibar/obj-det-1
+After=network.target gatekeeper.service
+Wants=network.target
+Requires=gatekeeper.service
+
+[Service]
+Type=simple
+User=jdneff
+Group=jdneff
+WorkingDirectory=/home/jdneff/Projects/obj-det-1
+ExecStart=/usr/bin/python3 /home/jdneff/Projects/obj-det-1/hailo_detection_service.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hailo-detection
+
+# Environment variables
+Environment=PYTHONPATH=/home/jdneff/Projects/obj-det-1
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target
