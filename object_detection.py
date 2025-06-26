@@ -11,6 +11,8 @@ import threading
 import cv2
 from typing import List
 from object_detection_utils import ObjectDetectionUtils
+import json
+from datetime import datetime
 
 # Add the parent directory to the system path to access utils module
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -54,6 +56,11 @@ def parse_args() -> argparse.Namespace:
         "-s", "--save_stream_output",
         action="store_true",
         help="Save the output of the inference from a stream."
+    )
+    parser.add_argument(
+        "--folder-mode",
+        action="store_true",
+        help="Process entire folder of images with JSON files and print detection metadata to terminal."
     )
 
     args = parser.parse_args()
@@ -145,7 +152,9 @@ def postprocess(
     cap: cv2.VideoCapture,
     save_stream_output: bool,
     utils: ObjectDetectionUtils,
-    input_path: str = None
+    input_path: str = None,
+    folder_mode: bool = False,
+    input_images: List[str] = None
 ) -> None:
     """
     Process and visualize the output results.
@@ -156,6 +165,8 @@ def postprocess(
         save_stream_output (bool): Flag indicating if the camera output should be saved.
         utils (ObjectDetectionUtils): Utility class for object detection visualization.
         input_path (str): Path to input file to determine output directory.
+        folder_mode (bool): Flag indicating if the input is a folder.
+        input_images (List[str]): List of input image paths for folder mode.
     """
     image_id = 0
     out = None
@@ -165,29 +176,6 @@ def postprocess(
         output_path = Path('test')
     else:
         output_path = Path('output')
-    if cap is not None:
-        # Create a named window
-        cv2.namedWindow("Output", cv2.WND_PROP_FULLSCREEN)
-
-        # Set the window to fullscreen
-        cv2.setWindowProperty("Output", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-
-        if save_stream_output:
-            output_path.mkdir(exist_ok=True)
-            frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-             # Define the codec and create VideoWriter object
-            fourcc = cv2.VideoWriter_fourcc(*'XVID')
-            # Save the output video in the output path
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            if fps == 0:  # If FPS is not available, set a default value
-                print(f"fps: {fps}")
-                fps = 20.0
-            out = cv2.VideoWriter(str(output_path / 'output_video.avi'), fourcc, fps, (frame_width, frame_height))
-
-    if (cap is None):
-        # Create output directory if it doesn't exist
-        output_path.mkdir(exist_ok=True)
 
     while True:
         result = output_queue.get()
@@ -202,17 +190,89 @@ def postprocess(
 
         detections = utils.extract_detections(infer_results)
 
-        frame_with_detections = utils.draw_detections(
-            detections, original_frame,
-        )
-        
-        if cap is not None:
-            # Display output
-            cv2.imshow("Output", frame_with_detections)
-            if save_stream_output:
-                out.write(frame_with_detections)
+        if folder_mode:
+            # Get current image path
+            current_image_path = input_images[image_id] if input_images and image_id < len(input_images) else None
+            
+            # Print detailed detection metadata
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"\n=== Detection Results for {Path(current_image_path).name if current_image_path else f'Image {image_id}'} ===")
+            print(f"Timestamp: {timestamp}")
+            print(f"Objects detected: {detections['num_detections']}")
+            
+            # Prepare detection metadata for JSON
+            detection_metadata = {
+                "detection_timestamp": timestamp,
+                "object_count": detections['num_detections'],
+                "objects_detected": [],
+                "model_used": "yolov8s_h8l.hef",
+                "detection_method": "hailo_application_code_examples"
+            }
+            
+            if detections['num_detections'] > 0:
+                boxes = detections['detection_boxes']
+                scores = detections['detection_scores'] 
+                classes = detections['detection_classes']
+                
+                for i in range(detections['num_detections']):
+                    class_id = classes[i]
+                    label = utils.labels[class_id] if class_id < len(utils.labels) else f"Class_{class_id}"
+                    confidence = scores[i]
+                    bbox = boxes[i]
+                    
+                    # Add to metadata
+                    detection_metadata["objects_detected"].append({
+                        "label": label,
+                        "confidence": float(confidence),
+                        "bbox": [float(x) for x in bbox]
+                    })
+                    
+                    print(f"  Object {i+1}:")
+                    print(f"    Label: {label}")
+                    print(f"    Confidence: {confidence:.2f}")
+                    print(f"    Bounding Box: [{bbox[0]:.1f}, {bbox[1]:.1f}, {bbox[2]:.1f}, {bbox[3]:.1f}]")
+            else:
+                print("  No objects detected")
+            
+            # Update JSON file if it exists
+            if current_image_path:
+                json_path = Path(current_image_path).with_suffix('.json')
+                if json_path.exists():
+                    try:
+                        with open(json_path, 'r') as f:
+                            json_data = json.load(f)
+                        
+                        # Update with detection metadata
+                        json_data.update(detection_metadata)
+                        
+                        with open(json_path, 'w') as f:
+                            json.dump(json_data, f, indent=2)
+                        
+                        print(f"  Updated JSON: {json_path.name}")
+                    except Exception as e:
+                        print(f"  Failed to update JSON: {e}")
+                
+                # Generate output image with overlay
+                frame_with_detections = utils.draw_detections(detections, original_frame)
+                
+                # Save annotated image in same directory as original
+                output_image_path = Path(current_image_path).parent / f"{Path(current_image_path).stem}_detected.jpg"
+                cv2.imwrite(str(output_image_path), frame_with_detections)
+                print(f"  Saved annotated image: {output_image_path.name}")
+            
+            print("=" * 50)
         else:
-            cv2.imwrite(str(output_path / f"output_{image_id}.png"), frame_with_detections)
+            frame_with_detections = utils.draw_detections(
+                detections, original_frame,
+            )
+            
+            if cap is not None:
+                # Display output
+                cv2.imshow("Output", frame_with_detections)
+                if save_stream_output:
+                    out.write(frame_with_detections)
+            else:
+                cv2.imwrite(str(output_path / f"output_{image_id}.png"), frame_with_detections)
 
         # Wait for key press "q"
         image_id += 1
@@ -231,34 +291,47 @@ def postprocess(
 
 
 def infer(
-    input,
+    input_images: List[str],
     save_stream_output: bool,
     net_path: str,
     labels_path: str,
     batch_size: int,
+    folder_mode: bool
 ) -> None:
     """
     Initialize queues, HailoAsyncInference instance, and run the inference.
 
     Args:
-        images (List[Image.Image]): List of images to process.
-        net_path (str): Path to the HEF model file.
+        input_images (List[str]): List of image paths to process.
+        save_stream_output (bool): Flag indicating if the camera output should be saved.
+        net_path (str): Path to the network in HEF format.
         labels_path (str): Path to a text file containing labels.
         batch_size (int): Number of images per batch.
-        output_path (Path): Path to save the output images.
+        folder_mode (bool): Flag indicating if processing multiple images from folder.
     """
     det_utils = ObjectDetectionUtils(labels_path)
     
     cap = None
     images = []
-    if input == "camera":
-        cap = cv2.VideoCapture(0)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_CAP_WIDTH)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_CAP_HEIGHT)
-    elif any(input.lower().endswith(suffix) for suffix in ['.mp4', '.avi', '.mov', '.mkv']):
-        cap = cv2.VideoCapture(input)
-    else:
-        images = load_images_opencv(input)
+    
+    if folder_mode:
+        # Process multiple images from folder
+        all_images = []
+        for img_path in input_images:
+            img_images = load_images_opencv(img_path)
+            all_images.extend(img_images)
+        images = all_images
+        logger.info(f"Processing {len(images)} images in folder mode")
+    elif len(input_images) == 1:
+        input_path = input_images[0]
+        if input_path == "camera":
+            cap = cv2.VideoCapture(0)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_CAP_WIDTH)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_CAP_HEIGHT)
+        elif any(input_path.lower().endswith(suffix) for suffix in ['.mp4', '.avi', '.mov', '.mkv']):
+            cap = cv2.VideoCapture(input_path)
+        else:
+            images = load_images_opencv(input_path)
 
         # Validate images
         try:
@@ -281,7 +354,7 @@ def infer(
     )
     postprocess_thread = threading.Thread(
         target=postprocess,
-        args=(output_queue, cap, save_stream_output, det_utils, input)
+        args=(output_queue, cap, save_stream_output, det_utils, input_images[0] if input_images else None, folder_mode, input_images)
     )
 
     preprocess_thread.start()
@@ -296,6 +369,31 @@ def infer(
     logger.info('Inference was successful!')
 
 
+def find_images_in_folder(folder_path: str) -> List[str]:
+    """
+    Find all images in a folder.
+    
+    Args:
+        folder_path (str): Path to the folder containing images.
+        
+    Returns:
+        List[str]: List of image file paths.
+    """
+    folder = Path(folder_path)
+    if not folder.exists() or not folder.is_dir():
+        raise ValueError(f"Folder does not exist: {folder_path}")
+    
+    image_extensions = ['.jpg', '.jpeg', '.png', '.bmp']
+    image_files = []
+    
+    for image_file in folder.iterdir():
+        if image_file.suffix.lower() in image_extensions:
+            image_files.append(str(image_file))
+    
+    logger.info(f"Found {len(image_files)} images in folder")
+    return sorted(image_files)
+
+
 def main() -> None:
     """
     Main function to run the script.
@@ -304,7 +402,11 @@ def main() -> None:
     args = parse_args()
 
     # Start the inference
-    infer(args.input, args.save_stream_output, args.net, args.labels, args.batch_size)
+    if args.folder_mode:
+        images = find_images_in_folder(args.input)
+    else:
+        images = [args.input]
+    infer(images, args.save_stream_output, args.net, args.labels, args.batch_size, args.folder_mode)
 
 
 if __name__ == "__main__":
