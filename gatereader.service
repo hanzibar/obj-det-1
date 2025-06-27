@@ -1,0 +1,23 @@
+[Unit]
+Description=Gatereader Object Detection REST API
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=jdneff
+Group=jdneff
+WorkingDirectory=/home/jdneff/Projects/obj-det-1
+Environment=PATH=/home/jdneff/Projects/obj-det-1/venv/bin
+ExecStart=/home/jdneff/Projects/obj-det-1/venv/bin/python gatereader_server.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/jdneff/Projects/obj-det-1/gatereader-service.log
+StandardError=append:/home/jdneff/Projects/obj-det-1/gatereader-service.log
+
+# Environment variables
+Environment=PYTHONPATH=/home/jdneff/Projects/obj-det-1
+Environment=HAILO_LOG_LEVEL=INFO
+
+[Install]
+WantedBy=multi-user.target
